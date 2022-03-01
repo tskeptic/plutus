@@ -270,13 +270,17 @@ def download_missing_data(
     dates_list = sorted(months_list) + grouped_days
     # progress bar
     if pbar:
-        dates_list = tqdm.tqdm(dates_list, ncols=cfg.TQDM_NCOLS)
+        flatten_list = lambda li: [i for subl in li for i in flatten_list(subl)] if type(li) is list else [li]
+        pbar_total = len(flatten_list(dates_list))
+        pbar = tqdm.tqdm(total=pbar_total, ncols=cfg.TQDM_NCOLS)
     # iterating
     for dt in dates_list:
         # collecting data
         if isinstance(dt, str):
             ym = dt
             status, data_rows = get_binance_data(trade_pair, dt, interval)
+            if pbar:
+                pbar.update(1)
             if status != 200:
                 failed_downloads[status].append(dt)
                 continue
@@ -285,6 +289,8 @@ def download_missing_data(
             data_rows = []
             for d in dt:
                 status, res = get_binance_data(trade_pair, d, interval)
+                if pbar:
+                    pbar.update(1)
                 if status != 200:
                     failed_downloads[status].append(d)
                 else:
@@ -301,6 +307,8 @@ def download_missing_data(
                 trade_pair=trade_pair,
                 interval=interval,
                 )
+    if pbar:
+        pbar.close()
     # storing unavailable periods
     errors_found = len(failed_downloads[404]) > 0
     api_working = rows_obtained > 0
