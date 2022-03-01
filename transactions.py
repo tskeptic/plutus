@@ -85,8 +85,8 @@ def prepare_transaction(t: dict) -> dict:
         'pair': 'BTCBRL',
         'ticker': 'BTC',
         'qty': t['BTC'],
-        'price': t['BRL']/t['BTC'],
-        'price_ticker': 'BRL',
+        'total': t['BRL'],
+        'total_ticker': 'BRL',
         'fee': t['buy_fee'],
         'fee_ticker': 'BTC',
         }
