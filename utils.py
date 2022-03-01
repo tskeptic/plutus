@@ -1,8 +1,9 @@
 
-import typing
+import csv
 import gzip
 import json
 import os
+import typing
 
 
 def get_file_operation(fpath: str) -> typing.Callable:
@@ -39,3 +40,15 @@ def write_jsonlines_file(fpath: str, rows: list) -> int:
             f_out.write(''.join([json.dumps(row), '\n']))
             total_rows += 1
     return total_rows
+
+
+def write_csv_file(fpath: str, rows: list) -> int:
+    """Writes list to a csv file, does not consider header"""
+    if os.path.isfile(fpath):
+        os.remove(fpath)
+    if not isinstance(rows[0], list):
+        rows = [[x] for x in rows]
+    with open(fpath, 'w') as csv_f:
+        csv_w = csv.writer(csv_f)
+        csv_w.writerows([x for x in rows])
+    return len(rows)
