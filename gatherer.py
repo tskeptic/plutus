@@ -225,6 +225,8 @@ def register_unavailability(
     today = datetime.datetime.now(datetime.timezone.utc).date()
     date_limit = str(today - datetime.timedelta(days=age_disconsider))
     filtered_fs = [x for x in tries_404s if x < date_limit[:len(x)]]
+    if len(filtered_fs) == 0:
+        return None
     # getting seq periods
     unav_periods = get_seqs(filtered_fs, interval)
     # this pair metadata
