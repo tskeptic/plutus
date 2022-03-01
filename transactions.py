@@ -122,6 +122,8 @@ def get_transactions_from_btctrd(data_rows: list) -> list:
             current_transaction = collections.defaultdict(float)
     # transforming
     final_transacs = [prepare_transaction(t) for t in transactions]
+    # ordering dict keys
+    final_transacs = [dict(sorted(di.items())) for di in final_transacs]
     return final_transacs
 
 
@@ -141,3 +143,44 @@ def process_btctrd_data():
         os.remove(f_out)
     n = utils.write_jsonlines_file(f_out, btctrd_transactions)
     print(f'transactions data for btctrd completed, {n} transactions found')
+
+
+## OTHER ############################################################
+
+
+def parse_others_data(rows_list: list) -> list:
+    """Parses data from other sources csv file"""
+    # checking expected format
+    exp_cols = ['source','datetime','ticker','qty','total','total_ticker','fee','fee_ticker']
+    found_cols = rows_list[0]
+    text = f'pls check format, expected: {exp_cols}, found: {found_cols}'
+    assert found_cols == exp_cols, text
+    # transforming
+    new_data = [{k:v for k,v in zip(exp_cols, r)} for r in rows_list[1:]]
+    # changing types
+    float_cols = ['qty', 'total', 'fee']
+    for r in new_data:
+        r['pair'] = ''.join([r['ticker'], r['total_ticker']])
+        for c in r.keys():
+            if c in float_cols:
+                r[c] = float(r[c])
+    # ordering dict keys
+    new_data = [dict(sorted(di.items())) for di in new_data]
+    return new_data
+
+
+def process_other_sources_data():
+    """Prepares data from other source to transactions formatted as expected"""
+    # finding file
+    other_sources = [str(p) for p in pathlib.Path(cfg.MANUAL_TRANSACTIONS_DIR).rglob('**/other_*')]
+    assert len(other_sources) < 2, 'more than one file found for this source of transactions'
+    assert len(other_sources) != 0, 'no file found for this source of transactions, make sure the name starts with "other_"'
+    # processing
+    osources_rows_raw = [r for r in csv.reader(open(other_sources[0]))]
+    osources_data = parse_others_data(osources_rows_raw)
+    # storing results
+    f_out = f'{cfg.TRANSACTIONS_DIR}/transactions_other.jl'
+    if os.path.isfile(f_out):
+        os.remove(f_out)
+    n = utils.write_jsonlines_file(f_out, osources_data)
+    print(f'transactions data for other sources completed, {n} transactions found')
