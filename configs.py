@@ -5,6 +5,8 @@ Configuration Variables
 # directories
 DATA_DIR='data'
 PAIRS_DIR=DATA_DIR+'/pairs'
+TRANSACTIONS_DIR=DATA_DIR+'/transactions'
+MANUAL_TRANSACTIONS_DIR=TRANSACTIONS_DIR+'/manual_input'
 PAIRS_DATA_DIRTEMPLATE=PAIRS_DIR+'/{trade_pair}/{interval}'
 
 # files
