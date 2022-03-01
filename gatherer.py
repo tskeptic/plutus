@@ -163,7 +163,6 @@ def store_data(
             current_data = utils.read_jsonlines_file(f_path_full)
             data_rows.extend(current_data)
             data_rows = sorted(data_rows, key=lambda x: x['open_time'])
-        os.remove(f_path_full)
     # writing
     rows_num = utils.write_jsonlines_file(f_path_full, data_rows)
     return rows_num

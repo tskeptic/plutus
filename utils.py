@@ -1,11 +1,11 @@
 
-from typing import Callable
+import typing
 import gzip
 import json
 import os
 
 
-def get_file_operation(fpath: str) -> Callable:
+def get_file_operation(fpath: str) -> typing.Callable:
     """Defines file operation based on the extention"""
     f_ext = fpath.split('.')[-1]
     if f_ext in ['gz', 'gzip']:
@@ -14,6 +14,7 @@ def get_file_operation(fpath: str) -> Callable:
         return open
     else:
         raise Exception(f'unexpected extension: {f_ext}')
+
 
 def read_jsonlines_file(fpath: str, ign_not_found: bool = True) -> list:
     """Reads JSON lines file into list object"""
@@ -29,6 +30,8 @@ def read_jsonlines_file(fpath: str, ign_not_found: bool = True) -> list:
 
 def write_jsonlines_file(fpath: str, rows: list) -> int:
     """Writes jsons (dicts) to a file"""
+    if os.path.isfile(fpath):
+        os.remove(fpath)
     op = get_file_operation(fpath)
     total_rows = 0
     with op(fpath, 'wt') as f_out:

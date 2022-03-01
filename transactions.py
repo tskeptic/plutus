@@ -139,8 +139,6 @@ def process_btctrd_data():
     btctrd_transactions = get_transactions_from_btctrd(btctrd_rows)
     # storing results
     f_out = f'{cfg.TRANSACTIONS_DIR}/transactions_btctrd.jl'
-    if os.path.isfile(f_out):
-        os.remove(f_out)
     n = utils.write_jsonlines_file(f_out, btctrd_transactions)
     print(f'transactions data for btctrd completed, {n} transactions found')
 
@@ -180,7 +178,5 @@ def process_other_sources_data():
     osources_data = parse_others_data(osources_rows_raw)
     # storing results
     f_out = f'{cfg.TRANSACTIONS_DIR}/transactions_other.jl'
-    if os.path.isfile(f_out):
-        os.remove(f_out)
     n = utils.write_jsonlines_file(f_out, osources_data)
     print(f'transactions data for other sources completed, {n} transactions found')
