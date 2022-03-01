@@ -49,6 +49,7 @@ def filter_missing_data(
         trade_pair: str,  # 'ETHUSDT'
         local_dates: list,  # ['2022-01-30', '2022-01-31']
         interval: str = cfg.DEFAULT_INTERVAL,  # '1d'
+        month_proxy: int = 7,  # 14
         ) -> tuple:  # (['2020-01', '2020-02'], ['2022-02-01', '2022-02-02'])
     """Gets missing months and days from local data"""
     assert interval in cfg.SUPPORTED_INTERVALS, f'interval type {interval} not supported'
@@ -67,12 +68,14 @@ def filter_missing_data(
     # generating grouped dates by month
     months = sorted(set([d[:7] for d in full_dates]))
     months_days = {m: sorted([d for d in full_dates if d[:7] == m]) for m in months}
-    this_month = str(datetime.datetime.now(datetime.timezone.utc).date())[:7]
+    today = datetime.datetime.now(datetime.timezone.utc)
+    this_month = str(today.date())[:7]
+    close_month = str((today - datetime.timedelta(days=month_proxy)).date())[:7]
     # collecting grouped dates
     missing_months = []
     missing_days = []
     for month, days in months_days.items():
-        if month == this_month:
+        if month in [this_month, close_month]:
             missing_days.extend([d for d in days if d in missing_dates])
         elif all([d in missing_dates for d in days]):
             missing_months.append(month)
