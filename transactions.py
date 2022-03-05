@@ -6,6 +6,7 @@ import math
 import os
 import pathlib
 import pytz
+import re
 
 import configs as cfg
 import utils
@@ -29,44 +30,48 @@ def mult_replaces(val: str, rep_tups: list) -> float:
     return val
 
 
-def parse_btctrd_value(val: str) -> float:
-    """Parses value field from btctrd data source"""
-    rep_list=[('BTC ', ''), ('R$ ', ''), ('.', ''), (',', '.')]
-    val = mult_replaces(val, rep_list)
-    return float(val)
+def parse_btctrd_act_category(val: str) -> str:
+    """Parses action category field from btctrd data source"""
+    re_groups = [
+        ('^Compra$', 'buy'),
+        ('^Depósito', 'deposit'),
+        ('^Retirada para', 'withdraw'),
+        ('^Taxa de mineração', 'withdrawal_fee'),
+        ('^Taxa sobre compra', 'buying_fee'),
+        ('^Venda', 'sell'),
+    ]
+    res = []
+    for regex in re_groups:
+        if re.match(regex[0], val):
+            res.append(regex[1])
+    assert len(res) == 1, f'unexpected matching action for {val}, groups found: {res}'
+    return res[0]
+
+
+def parse_btctrd_values(row_doc: str) -> float:
+    """Parses values fields from btctrd data source"""
+    values_cols = ['value', 'balance']
+    rep_list = [(row_doc['coin']+' ', ''), ('.', ''), (',', '.')]
+    for field in values_cols:
+        row_doc[field] = float(mult_replaces(row_doc[field], rep_list))
+    return row_doc
 
 
 def parse_btctrd_data(rows_list: list) -> list:
     """Parses data from btctrd csv file"""
     # checking expected format
     expected_cols = ['Data', 'Moeda', 'Categoria', 'Valor', 'Saldo após']
-    found_cols = rows_list[0]
-    text = f'pls check format, expected: {expected_cols}, found: {found_cols}'
-    assert found_cols == expected_cols, text
-    # checking used coins
-    expected_coins = ['Bitcoin', 'Real']
-    checks = [x[1] in expected_coins for x in rows_list[1:]]
-    assert all(checks), 'unexpected coin'
-    # checking matching coins rows only
-    coins = [mult_replaces(x[1], [('Bitcoin', 'BTC'), ('Real', 'R$')]) for x in rows_list[1:]]
-    coins_check = all([v.count(c)>0 for c,v in zip(coins, [x[3] for x in rows_list[1:]])])
-    assert coins_check, 'unmatched coin or coin value'
+    expected_cols_check = rows_list[0] == expected_cols
+    except_text = f'pls check format, expected: {expected_cols}, found: {rows_list[0]}'
+    assert expected_cols_check, except_text
     # transforming and parsing
-    coin_map = {'Bitcoin': 'BTC', 'Real': 'BRL'}
-    act_map = {
-        'Compra': 'buy',
-        'Depósito bancário': 'deposit',
-        'Retirada para carteira externa': 'withdraw',
-        'Taxa de mineração, baixa prioridade': 'withdrawal_fee',
-        'Taxa sobre compra - Executada': 'buy_fee',
-        'Taxa sobre compra - Executora': 'buy_fee',
-        }
+    coin_map = {'Bitcoin': 'BTC', 'Real': 'R$'}
     parsers = {
         'dttm': (0, parse_sp_dttm),
-        'coin': (1, coin_map.get),
-        'act': (2, act_map.get),
-        'value': (3, parse_btctrd_value),
-        'balance': (4, parse_btctrd_value),
+        'coin': (1, lambda x: coin_map.get(x, x.upper())),
+        'act': (2, parse_btctrd_act_category),
+        'value': (3, lambda x: x),
+        'balance': (4, lambda x: x),
         }
     new_data = []
     for row in rows_list[1:]:
@@ -74,54 +79,102 @@ def parse_btctrd_data(rows_list: list) -> list:
         for col in parsers.keys():
             new_row[col] = parsers[col][1](row[parsers[col][0]])
         new_data.append(new_row)
+    # checking matching coin and values
+    coins_values_match_check = all([r['value'].count(r['coin']) == 1 for r in new_data])
+    except_text = 'unmatching coin and value in data'
+    assert coins_values_match_check, except_text
+    # parsing values
+    for row in new_data:
+        row = parse_btctrd_values(row)
     return new_data
 
 
-def prepare_transaction(t: dict) -> dict:
+def prepare_transaction_doc(t: dict) -> dict:
     """Transforms btctrd transaction to default format"""
     return {
         'source': 'btctrd',
         'datetime': t['dttm'],
-        'pair': 'BTCBRL',
-        'ticker': 'BTC',
-        'qty': t['BTC'],
-        'total': t['BRL'],
+        'pair': f"{t['coin']}BRL",
+        'ticker': t['coin'],
+        'qty': t['value'],
+        'total': t['paid_value'],
         'total_ticker': 'BRL',
-        'fee': t['buy_fee'],
-        'fee_ticker': 'BTC',
+        'fee': t.get('buying_fee', .0),
+        'fee_ticker': t['coin'],
+        'mov_fee': t['withd'],
+        'mov_ticker': t['coin'],
         }
 
 
-def get_transactions_from_btctrd(data_rows: list) -> list:
+def get_transactions_from_btctrd(data_rows: list, val_tol: float = 9e-08) -> list:
     """Processes operations and transforms into unified transactions"""
     # ordering
     data_rows = sorted(data_rows, key=lambda x: (x['dttm'], x['act'], x['coin']))
     # variables
-    transactions = []
-    current_transaction = collections.defaultdict(float)
+    all_trans = []
+    curr_trans = collections.defaultdict(float)
     # iterating
     for ind in range(len(data_rows)):
         # defining current row and next dttm
         row = data_rows[ind]
-        next_dttm = data_rows[ind+1]['dttm'] if ind+1 < len(data_rows) else None
+        next_row = data_rows[ind+1] if ind+1 < len(data_rows) else {}
         # checking type of action
         if not row['act'].startswith('buy'):
+            # TODO: implement sell
             continue
+        # checking coin
+        row_fiat = row['coin'] == 'R$'
+        if not row_fiat:
+            if curr_trans['coin'] == .0:
+                curr_trans['coin'] = row['coin']
+            else:
+                same_coin_check = curr_trans['coin'] == row['coin']
+                except_text = ("different coins in the same transaction: "
+                               f"{curr_trans['coin']} and {row['coin']}")
+                assert same_coin_check, except_text
+        # getting next withdrawal fee
+        if curr_trans['coin'] != 0:
+            next_w = [r
+                      for r in data_rows[ind:]
+                      if (r['act'].startswith('withdraw')) and (r['coin'] == row['coin'])
+                      ]
+            if len(next_w) > 0:
+                withd = next_w[0]
+                if len(next_w) > 1:
+                    withd_fee = next_w[1]
+                else:
+                    withd_fee = {}
+                curr_trans['next_withdrawal_fee'] = abs(withd_fee.get('value', 0))
+                curr_trans['next_withdrawal'] = abs(withd.get('value', 0))
         # updating transaction
         if row['act'] == 'buy':
-            current_transaction[row['coin']] += abs(row['value'])
-        if row['act'] == 'buy_fee':
-            current_transaction['buy_fee'] += abs(row['value'])
+            if row_fiat:
+                curr_trans['paid_value'] += abs(row['value'])
+                if abs(row['value']) > val_tol:
+                    curr_trans['n_fiat'] += 1
+            else:
+                curr_trans['value'] += abs(row['value'])
+                if abs(row['value']) > val_tol:
+                    curr_trans['n_coin'] += 1
+        if row['act'] == 'buying_fee':
+            assert not row_fiat, 'unexpected buying fee paid in fiat'
+            curr_trans['buying_fee'] += abs(row['value'])
         # checking if transaction is finished
-        last_dttm = row['dttm'] != next_dttm
-        fee_perc = current_transaction['buy_fee'] / (current_transaction['BTC']+1e-21)
-        fee_reasonable = any([math.isclose(fee_perc, f, abs_tol=5e-5) for f in [0.0025, 0.005]])
-        if last_dttm and fee_reasonable:
-            current_transaction['dttm'] = row['dttm']
-            transactions.append(dict(current_transaction))
-            current_transaction = collections.defaultdict(float)
+        same_dttm = row['dttm'] != next_row.get('dttm')
+        at_least_one_op = curr_trans['n_coin'] > 0
+        match_ops = curr_trans['n_coin'] == curr_trans['n_fiat']
+        if all([same_dttm, at_least_one_op, match_ops]):
+            curr_trans['dttm'] = row['dttm']
+            # calculating withdrawal cost for this transaction
+            if curr_trans['next_withdrawal_fee'] != 0:
+                withd_mult = curr_trans['next_withdrawal_fee'] / curr_trans['next_withdrawal']
+                curr_trans['withd'] =  curr_trans['value'] * withd_mult
+            else:
+                curr_trans['withd'] = .0
+            all_trans.append(dict(curr_trans))
+            curr_trans = collections.defaultdict(float)
     # transforming
-    final_transacs = [prepare_transaction(t) for t in transactions]
+    final_transacs = [prepare_transaction_doc(t) for t in all_trans]
     # ordering dict keys
     final_transacs = [dict(sorted(di.items())) for di in final_transacs]
     return final_transacs
